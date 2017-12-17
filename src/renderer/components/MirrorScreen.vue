@@ -1,6 +1,6 @@
 <template>
   <div id='page'>
-    <canvas id='screen' :width="width + 'px'" :height="height+'px'" :style="canvasStyle"></canvas>
+    <canvas v-screen='screendata' id='screen' :width="canvasWidth" :height="canvasHeight" :style="canvasStyle"></canvas>
     <h1 @click="debug">Screen</h1>
     <blockquote class='info-panel'>
       <span v-for='(device,idx) in devices' :key="idx">
@@ -11,19 +11,34 @@
 </template>
 <script>
 import { listDevices, listPidsByComm, checkRunning, startMinicap } from '@/util/adbkit.js'
+
+import { liveStream, getTouchSocket } from '@/util/getStream.js'
+
 export default {
   name: 'mirror-screen',
   data() {
     return {
-      width: 200,
-      height: 100,
+      canvasWidth: 100,
+      canvasHeight: 100,
+      devices: [],
+      currentdevice: null,
       deviceStatus: {
-        PID_minicap: ''
+        PID_minicap: [],
+        PID_minitouch: [],
+        orientation: '0'
       },
-      devices: []
+      screendata: null,
     }
   },
   async created() {
+
+    this.mark = {
+      lastTimeStamp: null,
+      stream: null,
+      touchSocket: null,
+      theend: false,
+      pressing: false
+    }
     console.info('created')
     setInterval(this.toggleSize, 5000)
     this.devices = await listDevices()
@@ -31,13 +46,38 @@ export default {
   },
   computed: {
     canvasStyle() {
-      if (!this.height || !this.width) return console.error('wrong height or width'), {}
+      if (!this.canvasHeight || !this.canvasWidth) return console.error('wrong height or width'), {}
       let style = {
-        height: Math.round(+this.height * 1000 / this.width) / 10 + 'vw',
-        maxWidth: Math.round(this.width / this.height * 1000) / 10 + 'vh'
+        height: Math.round(+this.canvasHeight * 1000 / this.canvasWidth) / 10 + 'vw',
+        maxWidth: Math.round(this.canvasWidth / this.canvasHeight * 1000) / 10 + 'vh'
       }
       console.info(style)
       return style
+    }
+  },
+  directives: {
+    screen(el, binding, vNode) {
+      // console.info('[canvas Screen]')
+      if (!binding.value) return
+      // console.info('render an image ---- ', +new Date())
+      let BLANK_IMG = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='
+      var g = el.getContext('2d')
+      var blob = new Blob([binding.value], { type: 'image/jpeg' })
+      var URL = window.URL || window.webkitURL
+      var img = new Image()
+      img.onload = () => {
+        vNode.context.canvasWidth = img.width
+        vNode.context.canvasHeight = img.height
+        g.drawImage(img, 0, 0)
+        // firstImgLoad = true
+        img.onload = null
+        img.src = BLANK_IMG
+        img = null
+        u = null
+        blob = null
+      }
+      var u = URL.createObjectURL(blob)
+      img.src = u
     }
   },
   methods: {
@@ -47,10 +87,34 @@ export default {
       if (!err)
         this.deviceStatus.PID_minicap = result
     },
+    async gotStream() {
+      this.mark.theend = false
+      let vm = this
+      let cb = function(err, frameBody) {
+        // console.info('here is a frameBody. ')
+        // console.info({ vm, frameBody })
+        vm.screendata = frameBody
+      }
+      if (!this.mark.stream) {
+        this.mark.stream = (await liveStream({ device: this.currentdevice, mark: this.mark, cb }))
+      }
+    },
+    async stopStream() {
+      this.mark.theend = true
+      this.mark.stream && this.mark.stream.end()
+    },
+    async start() {
+      await this.stopStream()
+      let result = await startMinicap({ orientation: this.deviceStatus.orientation })
+      console.info({ result })
+      await this.gotStream()
+    },
     async debug() {
-      let { code, message } = await startMinicap()
-      console.info({ code, message })
+      await this.start()
+      // let { code, message } = await startMinicap()
+      // console.info({ code, message })
       await this.checkStatus()
+
     },
     toggleSize() {
       // console.info('toggleSize', this.width)
