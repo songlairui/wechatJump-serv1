@@ -15,6 +15,7 @@
         {{ device['name']}} - minicap:{{deviceStatus.PID_minicap || 'noMiniCap'}} - minitouch:{{deviceStatus.PID_minitouch || 'noMiniTouch'}}
       </span>
       <span :style="{color:absXY.overScreen?'cyan':'yellow'}">cursor: {{ absXY.x }} - {{ absXY.y }}</span>
+      <input v-model="quality" type="range" min="25" max="85" step="5">
     </blockquote>
   </div>
 </template>
@@ -28,6 +29,7 @@ export default {
   name: 'mirror-screen',
   data() {
     return {
+      quality: 50,
       canvasWidth: 100,
       canvasHeight: 100,
       devices: [],
@@ -85,15 +87,12 @@ export default {
         this.deviceStatus.orientation = /\d+/.exec(chunk.toString())[0]
         console.info('[  set status.orientation to ', this.deviceStatus.orientation)
         await this.stopStream()
-        try {
-          console.info('moitorRotate')
-          let result = await startMinicap({ orientation: this.deviceStatus.orientation })
-          console.log('result')
-        } catch (e) {
-          console.error(e)
-        }
+        let result = await startMinicap({ orientation: this.deviceStatus.orientation, quality: this.quality })
+        console.log('result')
         await this.gotStream()
-        this.calcTouchParams()
+        // this.$nextTick(function() {
+        //   this.calcTouchParams()
+        // })
       })
       rotatorMonitorSocket.on('close', async () => {
         await this.stopStream()
@@ -123,10 +122,14 @@ export default {
       this.mark.stream && !this.mark.stream.err && this.mark.stream.end()
     },
     async startTouch() {
-      let touchServ = await startMiniTouch()
-      console.info('miniTouch Serv: ', touchServ)
+      this.mark.touchend = false
+      let actMsg = await startMiniTouch()
+      console.info('miniTouch Serv: ', actMsg)
       if (!this.mark.touchSocket) {
         this.mark.touchSocket = (await getTouchSocket({ mark: this.mark }))
+        console.info(this.mark)
+      } else {
+        console.info('touchSocket already')
       }
     },
     async stopCap() {
@@ -149,6 +152,7 @@ export default {
       // let result = await startMinicap({ orientation: this.deviceStatus.orientation })
       // console.info({ result })
 
+      this.devices = await listDevices()
       await this.monitorRotate()
       // await this.gotStream()
     },
@@ -187,34 +191,16 @@ export default {
         console.info('new Boundary Data Settled')
         clientWidth = this.canvasBoundary.width || 1
         this.ratio = Math.floor(this.canvasWidth * 3 / Math.ceil(clientWidth) * 1000) / 1000
-        console.info(`
+        console.info(`\
         CANVAS EL: width - ${clientWidth}
         IMG width: ${this.canvasWidth}
-        ratio: ${this.ratio}
-      `)
+        ratio: ${this.ratio}`)
       })
     },
     mouseAct(e) {
       // console.info(e)
       this.cursor.x = e.x
       this.cursor.y = e.y
-      // return
-      // let ox = Math.round(e.x - this.canvasBoundary.left)
-      // let oy = Math.round(e.y - this.canvasBoundary.top + this.canvasBoundary.scrollTop)
-      // this.cursorData.cursor = { x: ox, y: oy }
-      // let [x, y] = [ox, oy].map(n => Math.floor(this.ratio * n))
-      // // 转换点击坐标值
-      // switch (this.deviceStatus.orientation) {
-      //   case '270':
-      //     ;[x, y] = [y, 1920 - x]
-      //     break
-      //   case '90':
-      //     ;[x, y] = [1080 - y, x]
-      //     break
-      //   case '180':
-      //     ;[x, y] = [1080 - x, 1920 - y]
-      //     break
-      // }
       let { x, y } = this.absXY
       let hit = []
       switch (e.type) {
@@ -227,6 +213,8 @@ export default {
           }
           break
         case 'mousedown':
+          // console.info(this.mark)
+          // console.info('mousedown', { x, y })
           // console.info(this.mark)
           if (this.mark.touchSocket && !this.configure.markMode) {
             this.mark.touchSocket.write(`r\n`)
@@ -246,6 +234,13 @@ export default {
           // this.$Message.info(`mouseup @ ${x} ${y}`)
           break
       }
+    }
+  },
+
+  watch: {
+    canvasWidth: function(newValue, oldValue) {
+      // console.info({ newValue, oldValue })
+      this.calcTouchParams()
     }
   },
   computed: {

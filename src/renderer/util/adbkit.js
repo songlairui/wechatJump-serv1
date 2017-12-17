@@ -72,7 +72,9 @@ export async function listPidsByComm(adb, serial, comm, bin) {
   return pids
 }
 
-export async function startMinicap({ orientation } = { orientation: '0' }) {
+export async function startMinicap(
+  { orientation, quality } = { orientation: '0', quality: '50' }
+) {
   orientation = orientation || '0'
   if (['0', '90', '180', '270'].indexOf(orientation) === -1) orientation = '0'
   let device = (tracedDevices || (await listDevices()))[0]
@@ -85,7 +87,7 @@ export async function startMinicap({ orientation } = { orientation: '0' }) {
     'LD_LIBRARY_PATH=%s exec %s %s',
     path.dirname('/data/local/tmp/minicap.so'),
     '/data/local/tmp/minicap',
-    `-P 540x960@360x640/${orientation} -S -Q 50`
+    `-P 540x960@360x640/${orientation} -S -Q ${quality}`
   )
   status.tryingStart = true
   let stdout = await client.shell(device.id, command)
