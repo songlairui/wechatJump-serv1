@@ -6,6 +6,10 @@
 ### why? 
 electron can use the native socket directly without middle-socket-server
 
+### main page
+display a full-width fitted canvas element.  
+
+
 #### Build Setup
 
 ``` bash
