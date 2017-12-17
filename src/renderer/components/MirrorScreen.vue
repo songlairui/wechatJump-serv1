@@ -4,19 +4,22 @@
     <h1 @click="debug">Screen</h1>
     <blockquote class='info-panel'>
       <span v-for='(device,idx) in devices' :key="idx">
-        {{ device['name']}} - {{device['id']}} - {{device['sdk']}}
+        {{ device['name']}} - {{device['id']}} - {{device['sdk']}} - minicap:{{deviceStatus.PID_minicap || 'noMiniCap'}}
       </span>
     </blockquote>
   </div>
 </template>
 <script>
-import { listDevices } from '@/util/adbkit.js'
+import { listDevices, listPidsByComm, checkRunning, startMinicap } from '@/util/adbkit.js'
 export default {
   name: 'mirror-screen',
   data() {
     return {
       width: 200,
       height: 100,
+      deviceStatus: {
+        PID_minicap: ''
+      },
       devices: []
     }
   },
@@ -24,6 +27,7 @@ export default {
     console.info('created')
     setInterval(this.toggleSize, 5000)
     this.devices = await listDevices()
+    await this.checkStatus()
   },
   computed: {
     canvasStyle() {
@@ -37,9 +41,16 @@ export default {
     }
   },
   methods: {
+    async checkStatus() {
+      let { err, result } = await checkRunning()
+      console.info('checkRunning', { err, result })
+      if (!err)
+        this.deviceStatus.PID_minicap = result
+    },
     async debug() {
-      let devices = await listDevices()
-      console.info({ devices })
+      let { code, message } = await startMinicap()
+      console.info({ code, message })
+      await this.checkStatus()
     },
     toggleSize() {
       // console.info('toggleSize', this.width)
