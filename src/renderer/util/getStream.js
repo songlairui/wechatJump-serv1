@@ -4,19 +4,12 @@ import * as adb from 'adbkit'
 const client = adb.createClient()
 
 export async function liveStream({ device, mark, cb }) {
-  cb =
-    cb ||
-    (() => {
-      console.info('--- a frame ---')
-    })
-  console.info('[}}}} ---=== > Try to Get liveStream ')
+  cb = cb || (() => console.info('--- a frame ---'))
+  console.info('····> Try to Get liveStream ')
   device = device || (await listDevices())[0]
   if (!device) {
     console.info('no devices')
-    // ws.close()
     return
-  } else {
-    console.info('device got')
   }
   var { err, stream } = await client
     .openLocal(device.id, 'localabstract:minicap')
@@ -24,14 +17,13 @@ export async function liveStream({ device, mark, cb }) {
     .then(out => ({ stream: out }))
     .catch(err => ({ err }))
   if (err) {
-    console.info('socket error, Retry within .4 second!!!')
-    await new Promise(resolve => setTimeout(resolve, 400))
-    mark.stream = await liveStream({ device, mark })
-    return
+    if (!mark.theend) {
+      console.info('socket error, Retry within 4 second!!!')
+      await new Promise(resolve => setTimeout(resolve, 4000))
+      mark.stream = await liveStream({ device, mark })
+    }
+    return { err: 'minicap end' }
   }
-  // var stream = net.connect({
-  //   port: 1313
-  // })
   stream.on('error', function() {
     console.error(' non socket ')
     // process.exit(1)
@@ -192,6 +184,7 @@ export async function liveStream({ device, mark, cb }) {
     console.info('socket Stream Closed ')
     mark.stream = null
     if (!mark.theend) {
+      console.info('重启stream')
       mark.stream = await liveStream({ device, mark, cb })
     }
   })
@@ -212,10 +205,14 @@ export async function getTouchSocket({ mark }) {
     .then(out => ({ stream: out }))
     .catch(err => ({ err }))
   if (err) {
-    console.info('miniTouch socket error, Retry within .2 second!!!')
-    await new Promise(resolve => setTimeout(resolve, 200))
-    // mark.touchSocket =
-    return await getTouchSocket({ mark })
+    if (!mark.touchend) {
+      console.info('miniTouch socket error, Retry within 2 second!!!')
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      // mark.touchSocket =
+      return await getTouchSocket({ mark })
+    } else {
+      return { err: 'touchend' }
+    }
   }
   stream.on('error', function() {
     console.error('Be sure to run `adb forward tcp:1313 localabstract:minicap`')
@@ -230,7 +227,9 @@ export async function getTouchSocket({ mark }) {
   stream.on('close', async () => {
     console.info('socket Stream Closed ')
     mark.touchSocket = null
-    mark.touchSocket = await getTouchSocket({ mark })
+    if (!mark.touchend) {
+      mark.touchSocket = await getTouchSocket({ mark })
+    }
   })
   return stream
 }

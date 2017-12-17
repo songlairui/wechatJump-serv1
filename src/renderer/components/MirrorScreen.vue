@@ -1,18 +1,28 @@
 <template>
-  <div id='page'>
+  <div id='page' @mousedown='mouseAct' @mouseup='mouseAct' @mousemove='mouseAct'>
     <canvas v-screen='screendata' id='screen' :width="canvasWidth" :height="canvasHeight" :style="canvasStyle"></canvas>
-    <h1 @click="debug">Screen</h1>
+    <div class="action-panel">
+      <button @click="startAll">startAll</button>
+      <button @click="stopAll">StopAll</button>
+      <button @click="stopCap">stopCap</button>
+      <button @click="startTouch">startTouch</button>
+      <button @click="stopTouch">stopTouch</button>
+      <button @click="debug">debug</button>
+      <span>boundary:{{ canvasBoundary.left }} - {{ canvasBoundary.top }} - {{ canvasBoundary.width }} - {{ canvasBoundary.height }}</span>
+    </div>
     <blockquote class='info-panel'>
       <span v-for='(device,idx) in devices' :key="idx">
-        {{ device['name']}} - {{device['id']}} - {{device['sdk']}} - minicap:{{deviceStatus.PID_minicap || 'noMiniCap'}}
+        {{ device['name']}} - minicap:{{deviceStatus.PID_minicap || 'noMiniCap'}} - minitouch:{{deviceStatus.PID_minitouch || 'noMiniTouch'}}
       </span>
+      <span :style="{color:absXY.overScreen?'cyan':'yellow'}">cursor: {{ absXY.x }} - {{ absXY.y }}</span>
     </blockquote>
   </div>
 </template>
 <script>
-import { listDevices, listPidsByComm, checkRunning, startMinicap } from '@/util/adbkit.js'
+import { tagDevice, listDevices, listPidsByComm, stopMiniCap, stopMiniTouch, checkRunning, startMinicap, startMiniTouch, getRotatorMonitor, closeRotatorMonitor } from '@/util/adbkit.js'
 
 import { liveStream, getTouchSocket } from '@/util/getStream.js'
+import _ from 'lodash'
 
 export default {
   name: 'mirror-screen',
@@ -28,31 +38,247 @@ export default {
         orientation: '0'
       },
       screendata: null,
+      canvasBoundary: { scrollTop: 0, width: 100, height: 100, left: 0, top: 0 },
+      cursor: {
+        x: 0, y: 0,
+        press: false,
+        decorator: null
+      },
+      configure: {
+        cursorCross: false,
+        markMode: false
+      }
     }
   },
   async created() {
-
     this.mark = {
       lastTimeStamp: null,
       stream: null,
       touchSocket: null,
       theend: false,
+      touchend: false,
       pressing: false
     }
     console.info('created')
-    setInterval(this.toggleSize, 5000)
     this.devices = await listDevices()
     await this.checkStatus()
+    // console.info(this.devices)
+    // await this.startAll()
+    this.calcTouchParams()
+    window.onresize = _.debounce(this.calcTouchParams, 500)
+  },
+  methods: {
+    async checkStatus() {
+      let { err, minicap, minitouch } = await checkRunning()
+      console.info('checkRunning', { err, minicap, minitouch })
+      if (!err) {
+        this.deviceStatus.PID_minicap = minicap
+        this.deviceStatus.PID_minitouch = minitouch
+      }
+    },
+
+    async monitorRotate() {
+      let rotatorMonitorSocket = await getRotatorMonitor()
+      rotatorMonitorSocket.on('readable', async () => {
+        let chunk = rotatorMonitorSocket.read()
+        if (!chunk) return
+        this.deviceStatus.orientation = /\d+/.exec(chunk.toString())[0]
+        console.info('[  set status.orientation to ', this.deviceStatus.orientation)
+        await this.stopStream()
+        try {
+          console.info('moitorRotate')
+          let result = await startMinicap({ orientation: this.deviceStatus.orientation })
+          console.log('result')
+        } catch (e) {
+          console.error(e)
+        }
+        await this.gotStream()
+        this.calcTouchParams()
+      })
+      rotatorMonitorSocket.on('close', async () => {
+        await this.stopStream()
+        console.info('[ rotatorMonitorSocket closed] ')
+      })
+    },
+    async getTouchServ() {
+      // let vm = this
+      if (!this.mark.touchSocket) {
+        this.mark.touchSocket = (await getTouchSocket({ mark: this.mark }))
+      }
+    },
+    async gotStream() {
+      var mark = this.mark
+      mark.theend = false
+      let vm = this
+      let cb = (err, frameBody) => { // 作为传入其他函数的回掉函数，不能使用不固定的this
+        vm.screendata = frameBody
+      }
+      if (!mark.stream) {
+        mark.stream = (await liveStream({ device: this.currentdevice, mark, cb }))
+      }
+    },
+    async stopStream() {
+      console.info('stopStream')
+      this.mark.theend = true
+      this.mark.stream && !this.mark.stream.err && this.mark.stream.end()
+    },
+    async startTouch() {
+      let touchServ = await startMiniTouch()
+      console.info('miniTouch Serv: ', touchServ)
+      if (!this.mark.touchSocket) {
+        this.mark.touchSocket = (await getTouchSocket({ mark: this.mark }))
+      }
+    },
+    async stopCap() {
+      this.mark.theend = true
+      console.info(this.mark.stream)
+      this.mark.stream && !this.mark.stream.err && this.mark.stream.end()
+      this.mark.stream = null
+      let killResult = await stopMiniCap()
+      await this.checkStatus()
+    },
+    async stopTouch() {
+      this.mark.touchend = true
+      console.info(this.mark.touchSocket)
+      this.mark.touchSocket && !this.mark.touchSocket.err && this.mark.touchSocket.end()
+      this.mark.touchSocket = null
+      let killResult = await stopMiniTouch()
+      await this.checkStatus()
+    },
+    async startAll() {
+      // let result = await startMinicap({ orientation: this.deviceStatus.orientation })
+      // console.info({ result })
+
+      await this.monitorRotate()
+      // await this.gotStream()
+    },
+    async stopAll() {
+      console.info('stopAll')
+      this.currentdevice = null
+      await this.getTouchServ()
+      // 停止检测屏幕旋转
+      await closeRotatorMonitor()
+      // 停止图像流输入
+      await this.stopStream()
+      this.mark.touchSocket && !this.mark.touchSocket.err && this.mark.touchSocket.end()
+      this.mark.touchSocket = null
+      this.mark.theend = true
+      this.mark.touchend = true
+    },
+    async debug() {
+      // await this.start()
+      // let { code, message } = await startMinicap()
+      // console.info({ code, message })
+      await this.checkStatus()
+
+    },
+    calcTouchParams() {
+      this.$nextTick(function() {
+        let targetEl = this.$el.querySelector('canvas#screen')
+        // let { width, height, left, top } = targetEl.getBoundingClientRect()
+        // https://jsperf.com/getcomputedstyle-vs-getboundingclientrect/3 ,性能比较。由于当前页面使用了固定的绝对定位，采用offset方式取值同样方便
+        let { offsetLeft, offsetTop, clientWidth, clientHeight } = targetEl
+        this.canvasBoundary.width = clientWidth
+        this.canvasBoundary.height = clientHeight
+        this.canvasBoundary.left = offsetLeft
+        this.canvasBoundary.top = offsetTop
+        if (!clientWidth || !clientHeight) return console.error('error client Width/Height')
+        this.canvasBoundary.ratio = Math.ceil(1920 * 100 / Math.max(clientWidth, clientHeight)) / 100
+        console.info('new Boundary Data Settled')
+        clientWidth = this.canvasBoundary.width || 1
+        this.ratio = Math.floor(this.canvasWidth * 3 / Math.ceil(clientWidth) * 1000) / 1000
+        console.info(`
+        CANVAS EL: width - ${clientWidth}
+        IMG width: ${this.canvasWidth}
+        ratio: ${this.ratio}
+      `)
+      })
+    },
+    mouseAct(e) {
+      // console.info(e)
+      this.cursor.x = e.x
+      this.cursor.y = e.y
+      // return
+      // let ox = Math.round(e.x - this.canvasBoundary.left)
+      // let oy = Math.round(e.y - this.canvasBoundary.top + this.canvasBoundary.scrollTop)
+      // this.cursorData.cursor = { x: ox, y: oy }
+      // let [x, y] = [ox, oy].map(n => Math.floor(this.ratio * n))
+      // // 转换点击坐标值
+      // switch (this.deviceStatus.orientation) {
+      //   case '270':
+      //     ;[x, y] = [y, 1920 - x]
+      //     break
+      //   case '90':
+      //     ;[x, y] = [1080 - y, x]
+      //     break
+      //   case '180':
+      //     ;[x, y] = [1080 - x, 1920 - y]
+      //     break
+      // }
+      let { x, y } = this.absXY
+      let hit = []
+      switch (e.type) {
+        case 'mousemove':
+          if (this.mark.pressing) {
+            if (this.mark.touchSocket && !this.configure.markMode) {
+              this.mark.touchSocket.write(`m 0 ${x} ${y} 50\n`)
+              this.mark.touchSocket.write(`c\n`)
+            }
+          }
+          break
+        case 'mousedown':
+          // console.info(this.mark)
+          if (this.mark.touchSocket && !this.configure.markMode) {
+            this.mark.touchSocket.write(`r\n`)
+            this.mark.touchSocket.write(`d 0 ${x} ${y} 50\n`)
+            this.mark.touchSocket.write(`c\n`)
+          }
+          // this.cursorData.points.clickin = { x: ox, y: oy }
+          // this.cursorData.points.clickout = null
+          this.mark.pressing = true
+          break
+        case 'mouseup':
+          // this.cursorData.points.clickout = { x: ox, y: oy }
+          if (this.mark.touchSocket && !this.configure.markMode) {
+            this.mark.touchSocket.write(`u\n`)
+            this.mark.touchSocket.write(`c\n`)
+          }
+          // this.$Message.info(`mouseup @ ${x} ${y}`)
+          break
+      }
+    }
   },
   computed: {
     canvasStyle() {
       if (!this.canvasHeight || !this.canvasWidth) return console.error('wrong height or width'), {}
-      let style = {
+      return {
         height: Math.round(+this.canvasHeight * 1000 / this.canvasWidth) / 10 + 'vw',
         maxWidth: Math.round(this.canvasWidth / this.canvasHeight * 1000) / 10 + 'vh'
       }
-      console.info(style)
-      return style
+    },
+    absXY() {
+      let x = this.cursor.x - this.canvasBoundary.left
+      let y = this.cursor.y - this.canvasBoundary.top
+      let overScreen = true
+      if (x < 0 || y < 0 || y > this.canvasBoundary.height || x > this.canvasBoundary.width) {
+        overScreen = false
+      }
+
+      // console.info('click @ ', x, y)
+      ;[x, y] = [x, y].map(n => Math.floor(this.canvasBoundary.ratio * n))
+      // console.info('click @ ', x, y)
+      switch (this.deviceStatus.orientation) {
+        case '270':
+          ;[x, y] = [y, 1920 - x]
+          break
+        case '90':
+          ;[x, y] = [1080 - y, x]
+          break
+        case '180':
+          ;[x, y] = [1080 - x, 1920 - y]
+          break
+      }
+      return { x, y, overScreen }
     }
   },
   directives: {
@@ -78,53 +304,6 @@ export default {
       }
       var u = URL.createObjectURL(blob)
       img.src = u
-    }
-  },
-  methods: {
-    async checkStatus() {
-      let { err, result } = await checkRunning()
-      console.info('checkRunning', { err, result })
-      if (!err)
-        this.deviceStatus.PID_minicap = result
-    },
-    async gotStream() {
-      this.mark.theend = false
-      let vm = this
-      let cb = function(err, frameBody) {
-        // console.info('here is a frameBody. ')
-        // console.info({ vm, frameBody })
-        vm.screendata = frameBody
-      }
-      if (!this.mark.stream) {
-        this.mark.stream = (await liveStream({ device: this.currentdevice, mark: this.mark, cb }))
-      }
-    },
-    async stopStream() {
-      this.mark.theend = true
-      this.mark.stream && this.mark.stream.end()
-    },
-    async start() {
-      await this.stopStream()
-      let result = await startMinicap({ orientation: this.deviceStatus.orientation })
-      console.info({ result })
-      await this.gotStream()
-    },
-    async debug() {
-      await this.start()
-      // let { code, message } = await startMinicap()
-      // console.info({ code, message })
-      await this.checkStatus()
-
-    },
-    toggleSize() {
-      // console.info('toggleSize', this.width)
-      if (this.width === 200) {
-        this.width = 100
-        this.height = 200
-      } else {
-        this.width = 200
-        this.height = 100
-      }
     }
   }
 }
@@ -161,11 +340,18 @@ canvas#screen {
   /* horizontal center */
 }
 
+.action-panel,
 blockquote.info-panel {
+  color: antiquewhite;
   position: absolute;
   bottom: 0;
   background: rgba(0, 0, 0, .3);
   width: 100%;
   padding: .5em .2em;
+}
+
+.action-panel {
+  bottom: auto;
+  top: 0
 }
 </style>
