@@ -1,21 +1,29 @@
 <template>
   <div id='page'>
-    <h1>Screen</h1>
     <canvas id='screen' :width="width + 'px'" :height="height+'px'" :style="canvasStyle"></canvas>
+    <h1 @click="debug">Screen</h1>
+    <blockquote class='info-panel'>
+      <span v-for='(device,idx) in devices' :key="idx">
+        {{ device['name']}} - {{device['id']}} - {{device['sdk']}}
+      </span>
+    </blockquote>
   </div>
 </template>
 <script>
+import { listDevices } from '@/util/adbkit.js'
 export default {
   name: 'mirror-screen',
   data() {
     return {
       width: 200,
-      height: 100
+      height: 100,
+      devices: []
     }
   },
-  created() {
+  async created() {
     console.info('created')
-    setInterval(this.toggleSize, 2500)
+    setInterval(this.toggleSize, 5000)
+    this.devices = await listDevices()
   },
   computed: {
     canvasStyle() {
@@ -29,8 +37,12 @@ export default {
     }
   },
   methods: {
+    async debug() {
+      let devices = await listDevices()
+      console.info({ devices })
+    },
     toggleSize() {
-      console.info('toggleSize', this.width)
+      // console.info('toggleSize', this.width)
       if (this.width === 200) {
         this.width = 100
         this.height = 200
@@ -72,5 +84,13 @@ canvas#screen {
   left: 0;
   right: 0;
   /* horizontal center */
+}
+
+blockquote.info-panel {
+  position: absolute;
+  bottom: 0;
+  background: rgba(0, 0, 0, .3);
+  width: 100%;
+  padding: .5em .2em;
 }
 </style>

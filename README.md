@@ -8,6 +8,7 @@ electron can use the native socket directly without middle-socket-server
 
 ### main page
 display a full-width fitted canvas element.  
+[CSS object-fit](https://stackoverflow.com/questions/20590239/maintain-aspect-ratio-of-div-but-fill-screen-width-and-height-in-css?answertab=active#tab-top)
 
 
 #### Build Setup
