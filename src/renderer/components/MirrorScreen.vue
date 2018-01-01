@@ -8,6 +8,8 @@
       <button @click="stopCap">stopCap</button>
       <button @click="startTouch">startTouch</button>
       <button @click="stopTouch">stopTouch</button>
+      <button @click="startKoa">startKoa</button>
+      <button @click="stopKoa">stopKoa</button>
       <button @click="debug">debug</button>
       <span>boundary:{{ canvasBoundary.left }} - {{ canvasBoundary.top }} - {{ canvasBoundary.width }} - {{ canvasBoundary.height }}</span>
     </div>
@@ -22,7 +24,7 @@
 </template>
 <script>
 import { tagDevice, listDevices, listPidsByComm, stopMiniCap, stopMiniTouch, checkRunning, startMinicap, startMiniTouch, getRotatorMonitor, closeRotatorMonitor } from '@/util/adbkit.js'
-
+import { genKoa } from '@/util/servkit.js'
 import { liveStream, getTouchSocket } from '@/util/getStream.js'
 import _ from 'lodash'
 
@@ -102,6 +104,31 @@ export default {
     window.onresize = _.debounce(this.calcTouchParams, 500)
   },
   methods: {
+    async startKoa() {
+      if (this._server) return
+      var vm = this
+      // 此处绑定了上下文，不能用箭头函数
+      var wsFn = function(message) {
+        // console.info(this)
+        // this bind 到 websocket
+        // TODO protobufjs or flatbufferjs
+        if ('capture' === message) {
+          this.send(JSON.stringify({ width: vm.canvasWidth, height: vm.canvasHeight }))
+          this.send(vm.screendata || Buffer.from(''))
+        }
+      }
+      const app = genKoa(wsFn)
+      this._server = app.listen(3456, () => {
+        console.info('listening', 3456)
+      })
+    },
+    async stopKoa() {
+      if (this._server) {
+        this._server.close()
+        this._server = null
+        console.info('koa _server ', this._server)
+      }
+    },
     async checkStatus() {
       let { err, minicap, minitouch } = await checkRunning()
       console.info('checkRunning', { err, minicap, minitouch })

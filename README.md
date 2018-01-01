@@ -10,6 +10,12 @@ electron can use the native socket directly without middle-socket-server
 display a full-width fitted canvas element.  
 [CSS object-fit](https://stackoverflow.com/questions/20590239/maintain-aspect-ratio-of-div-but-fill-screen-width-and-height-in-css?answertab=active#tab-top)
 
+### usage 
+
+- startAll ， 实际上是startMiniCap and getliveStream，获得实时图像
+- startMiniTouch ， 启动触控行为
+- startkoa , 点击之后，打开 localhost:3456 。页面中有capture按钮。
+
 ### before
 
 install minitouch minicap firstly

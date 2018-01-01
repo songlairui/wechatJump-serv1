@@ -13,7 +13,7 @@ const status = {
 export async function listDevices() {
   // console.log('[adbkit] listDevices')
   var devices = await client.listDevices()
-  if (devices.length) {
+  if (devices && devices.length) {
     await Promise.all(
       devices.map(async device => {
         let properities = await client.getProperties(device.id)
@@ -23,10 +23,12 @@ export async function listDevices() {
       })
     )
     return devices
+  } else {
+    return []
   }
 }
 export async function checkRunning() {
-  let err, minicap, minitouch
+  let err, minicap, minitouch, result
   let device = (tracedDevices || (await listDevices()))[0]
   if (!device) return { err: new Error('no device'), result }
   minicap = await listPidsByComm(
