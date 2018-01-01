@@ -27,16 +27,34 @@ import { liveStream, getTouchSocket } from '@/util/getStream.js'
 import _ from 'lodash'
 
 function drawCross(point, ctx, el) {
-
+  let angel = 30
   let { x, y } = point
+
+  ctx.translate(x, y);
+  ctx.rotate(angel * Math.PI / 180);
+  ctx.translate(-x, -y);
+
   ctx.beginPath()
   ctx.moveTo(0, y)
   ctx.lineTo(el.width, y)
+  ctx.strokeStyle = '#A00'
   ctx.stroke();
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+  ctx.translate(x, y);
+  ctx.rotate(-angel * Math.PI / 180);
+  ctx.translate(-x, -y);
+
   ctx.beginPath();
-  ctx.moveTo(x, 0)
-  ctx.lineTo(x, el.height)
+  ctx.moveTo(0, y)
+  ctx.lineTo(el.width, y)
+  // ctx.moveTo(x, 0)
+  // ctx.lineTo(x, el.height)
+  ctx.strokeStyle = '#4A3'
   ctx.stroke();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.strokeStyle = '#000'
 }
 
 export default {
@@ -330,16 +348,16 @@ export default {
       let dY = el.height / 2 - y
 
 
-      // ctx.translate(x, y);
-      // ctx.rotate(45 * Math.PI / 180);
+      drawCross({ x, y }, ctx, el)
       // ctx.translate(-el.width / 2, -el.height / 2)
       // ctx.globalAlpha = 0.3
       // ctx.fillRect(100, 100, el.width - 200, el.height - 200)
       // ctx.globalAlpha = 1.0
-      drawCross({ x, y }, ctx, el)
+      // drawCross({ x, y }, ctx, el)
       // ctx.translate(el.width / 2, el.height / 2)
       // ctx.rotate(-45 * Math.PI / 180);
-      // ctx.translate(-x, -y);
+      // ctx.translate(x, y);
+      // ctx.setTransform(1, 0, 0, 1, 0, 0);
       // ctx.setTransform(1, 0, 0, 1, 0, 0);
 
     }

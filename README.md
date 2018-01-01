@@ -14,6 +14,19 @@ display a full-width fitted canvas element.
 
 install minitouch minicap firstly
 
+### TODO  
+[ ] build a socket server
+  [ ] - capture current screen
+  [ ] - click @ x,y | orientation
+  [ ] - KOA
+    [ ] - KOA-RESTFUL
+
+### TO IMPROVE
+
+[ ] custom fps
+[ ] change orientation without image-cap-serv reload
+
+
 ### Build Setup
 
 ``` bash
