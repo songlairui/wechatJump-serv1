@@ -20,7 +20,7 @@ export async function liveStream({ device, mark, cb }) {
     if (!mark.theend) {
       console.info('socket error, Retry within 4 second!!!')
       await new Promise(resolve => setTimeout(resolve, 4000))
-      mark.stream = await liveStream({ device, mark })
+      mark.stream = await liveStream({ device, mark, cb })
     }
     return { err: 'minicap end' }
   }

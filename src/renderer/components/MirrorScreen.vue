@@ -1,6 +1,7 @@
 <template>
   <div id='page' @mousedown='mouseAct' @mouseup='mouseAct' @mousemove='mouseAct'>
     <canvas v-screen='screendata' id='screen' :width="canvasWidth" :height="canvasHeight" :style="canvasStyle"></canvas>
+    <canvas v-cover='cursor' id='cover'></canvas>
     <div class="action-panel">
       <button @click="startAll">startAll</button>
       <button @click="stopAll">StopAll</button>
@@ -24,6 +25,19 @@ import { tagDevice, listDevices, listPidsByComm, stopMiniCap, stopMiniTouch, che
 
 import { liveStream, getTouchSocket } from '@/util/getStream.js'
 import _ from 'lodash'
+
+function drawCross(point, ctx, el) {
+
+  let { x, y } = point
+  ctx.beginPath()
+  ctx.moveTo(0, y)
+  ctx.lineTo(el.width, y)
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x, 0)
+  ctx.lineTo(x, el.height)
+  ctx.stroke();
+}
 
 export default {
   name: 'mirror-screen',
@@ -178,6 +192,9 @@ export default {
     },
     calcTouchParams() {
       this.$nextTick(function() {
+        let coverEl = this.$el.querySelector('canvas#cover')
+        coverEl.width = this.$el.offsetWidth
+        coverEl.height = this.$el.offsetHeight
         let targetEl = this.$el.querySelector('canvas#screen')
         // let { width, height, left, top } = targetEl.getBoundingClientRect()
         // https://jsperf.com/getcomputedstyle-vs-getboundingclientrect/3 ,性能比较。由于当前页面使用了固定的绝对定位，采用offset方式取值同样方便
@@ -299,6 +316,32 @@ export default {
       }
       var u = URL.createObjectURL(blob)
       img.src = u
+    },
+    cover(el, binding, vNode) {
+      if (!binding.value) return
+      // let BLANK_IMG = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='
+      // var g = el.getContext('2d')
+      let y = binding.value.y
+      let x = binding.value.x
+      let vm = vNode.context
+      var ctx = el.getContext('2d')
+      ctx.clearRect(0, 0, el.width, el.height)
+      let dX = el.width / 2 - x
+      let dY = el.height / 2 - y
+
+
+      // ctx.translate(x, y);
+      // ctx.rotate(45 * Math.PI / 180);
+      // ctx.translate(-el.width / 2, -el.height / 2)
+      // ctx.globalAlpha = 0.3
+      // ctx.fillRect(100, 100, el.width - 200, el.height - 200)
+      // ctx.globalAlpha = 1.0
+      drawCross({ x, y }, ctx, el)
+      // ctx.translate(el.width / 2, el.height / 2)
+      // ctx.rotate(-45 * Math.PI / 180);
+      // ctx.translate(-x, -y);
+      // ctx.setTransform(1, 0, 0, 1, 0, 0);
+
     }
   }
 }
@@ -343,10 +386,17 @@ blockquote.info-panel {
   background: rgba(0, 0, 0, .3);
   width: 100%;
   padding: .5em .2em;
+  z-index: 15;
 }
 
 .action-panel {
   bottom: auto;
   top: 0
+}
+
+#cover {
+  position: absolute;
+  background: rgba(0, 0, 0, .1);
+  z-index: 10;
 }
 </style>

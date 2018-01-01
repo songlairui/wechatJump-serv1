@@ -87,8 +87,9 @@ export async function startMinicap(
     'LD_LIBRARY_PATH=%s exec %s %s',
     path.dirname('/data/local/tmp/minicap.so'),
     '/data/local/tmp/minicap',
-    `-P 540x960@360x640/${orientation} -S -Q ${quality}`
+    `-P 1080x1920@360x640/${orientation} -S -Q ${quality}`
   )
+  //     `-P 540x960@360x640/${orientation} -S -Q ${quality}`
   status.tryingStart = true
   let stdout = await client.shell(device.id, command)
   return new Promise((resolve, reject) => {
@@ -128,7 +129,8 @@ export async function killProcsByComm(adb, serial, comm, bin, mode) {
   } catch (e) {
     console.info('error  catched : ', e)
     console.info('还没结束，手动继续 Kill吧')
-    return killProcsByComm(adb, serial, comm, bin, -9)
+    throw new Exception('cannot kill')
+    // return killProcsByComm(adb, serial, comm, bin, -9)
   }
 }
 
@@ -138,14 +140,20 @@ export async function startMiniTouch() {
   if (status.tryingStartTouch)
     return console.warn('already trying start minitouch')
   status.tryingStartTouch = true
-  let killResult = await killProcsByComm(
-    client,
-    device.id,
-    '',
-    '/data/local/tmp/minitouch',
-    ''
-  )
-  console.warn('killResult', killResult)
+  let killResult
+  try {
+    killResult = await killProcsByComm(
+      client,
+      device.id,
+      '',
+      '/data/local/tmp/minitouch',
+      ''
+    )
+    console.warn('killResult', killResult)
+  } catch (e) {
+    console.info('startMiniTouch', e)
+    return
+  }
   let command = 'exec /data/local/tmp/minitouch'
   console.info('StartTouch')
   var stdout = await client.shell(device.id, command)
