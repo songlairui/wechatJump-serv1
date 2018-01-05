@@ -10,7 +10,11 @@
       <button @click="stopTouch">stopTouch</button>
       <button @click="startKoa">startKoa</button>
       <button @click="stopKoa">stopKoa</button>
+      <button @click="startSocket">startSocket</button>
+      <button @click="stopSocket">stopSocket</button>
       <button @click="debug">debug</button>
+      <input type="range" v-model="slap" max='2000'> {{ slap }}ms
+      <button @click="perform">perform</button>
       <span>boundary:{{ canvasBoundary.left }} - {{ canvasBoundary.top }} - {{ canvasBoundary.width }} - {{ canvasBoundary.height }}</span>
     </div>
     <blockquote class='info-panel'>
@@ -24,14 +28,14 @@
 </template>
 <script>
 import { tagDevice, listDevices, listPidsByComm, stopMiniCap, stopMiniTouch, checkRunning, startMinicap, startMiniTouch, getRotatorMonitor, closeRotatorMonitor } from '@/util/adbkit.js'
-import { genKoa } from '@/util/servkit.js'
+import { genKoa, genSocket } from '@/util/servkit.js'
 import { liveStream, getTouchSocket } from '@/util/getStream.js'
 import _ from 'lodash'
 
 function drawCross(point, ctx, el) {
   let angel = 30
   let { x, y } = point
-
+  if (!x || !y) return
   ctx.translate(x, y);
   ctx.rotate(angel * Math.PI / 180);
   ctx.translate(-x, -y);
@@ -59,10 +63,25 @@ function drawCross(point, ctx, el) {
   ctx.strokeStyle = '#000'
 }
 
+/**
+ * 直线轨迹计算
+ * x - 时间 ms
+ * ratio - canvas像素与触屏像素比例
+ * ratio2 - canvasresize的比例
+ */
+function linearFn(x, ratio, ratio2) {
+  if (!ratio) throw new Error('ratio invalid')
+  var y = -6.232e-08 * x * x * x + 0.0001559 * x * x + 0.6601 * x - 0.7638
+  if (y < 0) y = 0
+  return Math.round(y / ratio)
+}
+
 export default {
   name: 'mirror-screen',
   data() {
     return {
+      slap: 10,
+      ratio: 1,
       quality: 50,
       canvasWidth: 100,
       canvasHeight: 100,
@@ -78,7 +97,13 @@ export default {
       cursor: {
         x: 0, y: 0,
         press: false,
-        decorator: null
+        decorator: null,
+        clickPoint: {
+          x: 0, y: 0
+        },
+        targetPoint: {
+          x: 0, y: 0
+        }
       },
       configure: {
         cursorCross: false,
@@ -104,6 +129,21 @@ export default {
     window.onresize = _.debounce(this.calcTouchParams, 500)
   },
   methods: {
+    async perform() {
+      var slap = this.slap || 10
+      console.info('slap', slap)
+      let x = 200, y = 200
+      if (this.mark.touchSocket && !this.configure.markMode) {
+        this.mark.touchSocket.write(`r\n`)
+        this.mark.touchSocket.write(`d 0 ${x} ${y} 50\n`)
+        this.mark.touchSocket.write(`c\n`)
+        await new Promise(r => setTimeout(r, slap))
+        this.mark.touchSocket.write(`u\n`)
+        this.mark.touchSocket.write(`c\n`)
+      } else {
+        console.info('no touch Socket')
+      }
+    },
     async startKoa() {
       if (this._server) return
       var vm = this
@@ -127,6 +167,30 @@ export default {
         this._server.close()
         this._server = null
         console.info('koa _server ', this._server)
+      }
+    },
+    async startSocket() {
+      var vm = this
+      // 使用了bind，不能使用箭头函数
+      var sFn = function(data) {
+        console.info('socket serv:', data.toString())
+        if (data.toString() === 'capture') {
+          this.write(vm.screendata)
+        }
+      }
+
+      var server = genSocket(sFn)
+      var vm = this
+      server.listen(1338, '127.0.0.1', function(...x) {
+        console.info(x, this)
+        vm._socket = this
+      })
+    },
+    async stopSocket() {
+      if (this._socket) {
+        this._socket.close()
+        this._socket = null
+        console.log('_socket => ', this._socket)
       }
     },
     async checkStatus() {
@@ -240,6 +304,7 @@ export default {
         let coverEl = this.$el.querySelector('canvas#cover')
         coverEl.width = this.$el.offsetWidth
         coverEl.height = this.$el.offsetHeight
+
         let targetEl = this.$el.querySelector('canvas#screen')
         // let { width, height, left, top } = targetEl.getBoundingClientRect()
         // https://jsperf.com/getcomputedstyle-vs-getboundingclientrect/3 ,性能比较。由于当前页面使用了固定的绝对定位，采用offset方式取值同样方便
@@ -252,19 +317,20 @@ export default {
         this.canvasBoundary.ratio = Math.ceil(1920 * 100 / Math.max(clientWidth, clientHeight)) / 100
         console.info('new Boundary Data Settled')
         clientWidth = this.canvasBoundary.width || 1
-        this.ratio = Math.floor(this.canvasWidth * 3 / Math.ceil(clientWidth) * 1000) / 1000
+        this.ratio = Math.floor(Math.ceil(clientWidth) * 1000 / this.canvasWidth) / 1000
         console.info(`\
         CANVAS EL: width - ${clientWidth}
         IMG width: ${this.canvasWidth}
         ratio: ${this.ratio}`)
       })
     },
-    mouseAct(e) {
+    async mouseAct(e) {
       // console.info(e)
       this.cursor.x = e.x
       this.cursor.y = e.y
       let { x, y } = this.absXY
       let hit = []
+      if (e.target.tagName !== 'CANVAS') return
       switch (e.type) {
         case 'mousemove':
           if (this.mark.pressing) {
@@ -272,6 +338,7 @@ export default {
               this.mark.touchSocket.write(`m 0 ${x} ${y} 50\n`)
               this.mark.touchSocket.write(`c\n`)
             }
+            this.cursor.targetPoint.y -= 1
           }
           break
         case 'mousedown':
@@ -285,10 +352,22 @@ export default {
           }
           // this.cursorData.points.clickin = { x: ox, y: oy }
           // this.cursorData.points.clickout = null
+          let stamp = +new Date()
+          this.cursor.clickPoint = { x: e.x, y: e.y, stamp }
+          this.cursor.targetPoint = { x: e.x, y: e.y - 20, stamp }
           this.mark.pressing = true
+          var mark = this.mark
+          while (mark.pressing) {
+            let deltaTime = +new Date() - this.cursor.clickPoint.stamp
+            this.cursor.targetPoint.y = this.cursor.clickPoint.y -
+              linearFn(deltaTime, this.canvasBoundary.ratio, this.ratio)
+            // console.info('while ing', mark.pressing, deltaTime)
+            await new Promise(r => setTimeout(r, 10))
+          }
           break
         case 'mouseup':
           // this.cursorData.points.clickout = { x: ox, y: oy }
+          this.mark.pressing = false
           if (this.mark.touchSocket && !this.configure.markMode) {
             this.mark.touchSocket.write(`u\n`)
             this.mark.touchSocket.write(`c\n`)
@@ -366,8 +445,7 @@ export default {
       if (!binding.value) return
       // let BLANK_IMG = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='
       // var g = el.getContext('2d')
-      let y = binding.value.y
-      let x = binding.value.x
+      let { x, y, clickPoint, targetPoint } = binding.value
       let vm = vNode.context
       var ctx = el.getContext('2d')
       ctx.clearRect(0, 0, el.width, el.height)
@@ -376,6 +454,8 @@ export default {
 
 
       drawCross({ x, y }, ctx, el)
+      drawCross(clickPoint, ctx, el)
+      drawCross(targetPoint, ctx, el)
       // ctx.translate(-el.width / 2, -el.height / 2)
       // ctx.globalAlpha = 0.3
       // ctx.fillRect(100, 100, el.width - 200, el.height - 200)
