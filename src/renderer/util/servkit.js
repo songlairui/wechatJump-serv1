@@ -1,5 +1,6 @@
 const Koa = require('koa')
 const KoaRouter = require('koa-router')
+const net = require('net')
 const route = require('koa-route')
 const logger = require('koa-logger')
 const fs = require('fs')
@@ -30,6 +31,24 @@ export function genKoa(
     })
   )
   return app
+}
+
+export function genSocket(sFn = m => console.log(m.toString())) {
+  var socketClients = []
+  var server = net.createServer(function(socket) {
+    socket.name = socket.remoteAddress + ':' + socket.remotePort
+    socketClients.push(socket)
+    socket.write('Echo server\r\n')
+    // Handle incoming messages from clients.
+    socket.on('data', sFn.bind(socket))
+
+    // Remove the client from the list when it leaves
+    socket.on('end', function() {
+      clients.splice(socketClients.indexOf(socket), 1)
+      console.info('1 client closed')
+    })
+  })
+  return server
 }
 
 async function info_default(ctx) {
