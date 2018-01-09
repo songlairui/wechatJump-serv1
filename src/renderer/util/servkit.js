@@ -33,18 +33,23 @@ export function genKoa(
   return app
 }
 
-export function genSocket(sFn = m => console.log(m.toString())) {
+export function genSocket(
+  sFn = m => console.log(m.toString()),
+  cachedObj = {}
+) {
   var socketClients = []
+  cachedObj.clients = socketClients
   var server = net.createServer(function(socket) {
     socket.name = socket.remoteAddress + ':' + socket.remotePort
     socketClients.push(socket)
+    console.info('client collected')
     socket.write('Echo server\r\n')
     // Handle incoming messages from clients.
     socket.on('data', sFn.bind(socket))
 
     // Remove the client from the list when it leaves
     socket.on('end', function() {
-      clients.splice(socketClients.indexOf(socket), 1)
+      socketClients.splice(socketClients.indexOf(socket), 1)
       console.info('1 client closed')
     })
   })

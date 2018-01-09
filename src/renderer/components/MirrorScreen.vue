@@ -13,16 +13,20 @@
       <button @click="startSocket">startSocket</button>
       <button @click="stopSocket">stopSocket</button>
       <button @click="debug">debug</button>
+      <button @click="matchTemplate">matchTemplate</button>
+      <button @click="autoClick">auto</button>
+      <input type="checkbox" v-model="auto">
       <input type="range" v-model="slap" max='2000'> {{ slap }}ms
       <button @click="perform">perform</button>
       <span>boundary:{{ canvasBoundary.left }} - {{ canvasBoundary.top }} - {{ canvasBoundary.width }} - {{ canvasBoundary.height }}</span>
     </div>
     <blockquote class='info-panel'>
+      {{ socketmsg }}
       <span v-for='(device,idx) in devices' :key="idx">
         {{ device['name']}} - minicap:{{deviceStatus.PID_minicap || 'noMiniCap'}} - minitouch:{{deviceStatus.PID_minitouch || 'noMiniTouch'}}
       </span>
       <span :style="{color:absXY.overScreen?'cyan':'yellow'}">cursor: {{ absXY.x }} - {{ absXY.y }}</span>
-      <input v-model="quality" type="range" min="25" max="85" step="5">
+      <input v-model="quality" type="range" min="25" max="95" step="5">
     </blockquote>
   </div>
 </template>
@@ -32,6 +36,12 @@ import { genKoa, genSocket } from '@/util/servkit.js'
 import { liveStream, getTouchSocket } from '@/util/getStream.js'
 import _ from 'lodash'
 
+function drawVLine(x, ctx, el) {
+  ctx.beginPath();
+  ctx.moveTo(x, 0)
+  ctx.lineTo(x, el.height)
+  ctx.stroke();
+}
 function drawCross(point, ctx, el) {
   let angel = 30
   let { x, y } = point
@@ -80,9 +90,10 @@ export default {
   name: 'mirror-screen',
   data() {
     return {
+      auto: false,
       slap: 10,
       ratio: 1,
-      quality: 50,
+      quality: 86,
       canvasWidth: 100,
       canvasHeight: 100,
       devices: [],
@@ -103,15 +114,25 @@ export default {
         },
         targetPoint: {
           x: 0, y: 0
+        },
+        startPoint: {
+          x: 0, y: 0
+        },
+        targetPoint2: {
+          x: 0, y: 0, x0: 0
         }
       },
       configure: {
         cursorCross: false,
         markMode: false
-      }
+      },
+      socketmsg: '',
+      cachedObj: [],
+      sequence: [] // 存储待完成的 Promise
     }
   },
   async created() {
+    window.vm = this
     this.mark = {
       lastTimeStamp: null,
       stream: null,
@@ -129,6 +150,11 @@ export default {
     window.onresize = _.debounce(this.calcTouchParams, 500)
   },
   methods: {
+    async autoc() {
+      this.matchTemplate()
+        .then(() => new Promise(r => setTimeout(r, 931 + Math.random() * 223)))
+        .then(() => autoc())
+    },
     async perform() {
       var slap = this.slap || 10
       console.info('slap', slap)
@@ -143,6 +169,29 @@ export default {
       } else {
         console.info('no touch Socket')
       }
+    },
+    async performByDistance(d = 144) {
+      let [x, y] = [159 + Math.random() * 100, 159 + Math.random() * 100]
+      if (this.mark.touchSocket && !this.configure.markMode) {
+        this.mark.touchSocket.write(`r\n`)
+        this.mark.touchSocket.write(`d 0 ${x} ${y} 50\n`)
+        this.mark.touchSocket.write(`c\n`)
+        this.cursor.clickPoint.stamp = +new Date()
+        let distance = 0
+        while (distance < d) {
+          await new Promise(r => setTimeout(r, 5))
+          let deltaTime = +new Date() - this.cursor.clickPoint.stamp
+          distance = linearFn(deltaTime, this.canvasBoundary.ratio, this.ratio)
+          this.cursor.targetPoint.y = this.cursor.clickPoint.y - distance
+          // console.info('while ing', mark.pressing, deltaTime)
+        }
+        console.log({ distance, d })
+        this.mark.touchSocket.write(`u\n`)
+        this.mark.touchSocket.write(`c\n`)
+      } else {
+        console.info('no touch Socket')
+      }
+      return ''
     },
     async startKoa() {
       if (this._server) return
@@ -169,21 +218,130 @@ export default {
         console.info('koa _server ', this._server)
       }
     },
+    async autoClick() {
+      var vm = this
+      if (!this._socket) {
+        await this.startSocket() //
+      }
+      if (!this._socket) { throw new Error("socket server start failed") }
+
+      if (!this.cachedObj.clients || !this.cachedObj.clients.length) {
+        throw new Error('non socket connections')
+      } else {
+        let [x, y] = [Math.round(519 + Math.random() * 10), Math.round(1288 + Math.random() * 10)]
+        if (this.mark.touchSocket && !this.configure.markMode) {
+          this.mark.touchSocket.write(`r\n`)
+          console.log('click', x, y)
+          this.mark.touchSocket.write(`d 0 ${x} ${y} 50\n`)
+          this.mark.touchSocket.write(`c\n`)
+
+          let d = 1500
+          new Promise(r => {
+            vm.sequence.push(r)
+          }).then(result => {
+            console.log({ result })
+            vm.cursor.startPoint.x = result.startPoint.x
+            vm.cursor.startPoint.y = result.startPoint.y + 160
+            vm.cursor.targetPoint2.x = result.targetPoint.x
+            vm.cursor.targetPoint2.y = result.targetPoint.y + 160
+            vm.cursor.targetPoint2.x0 = result.targetPoint.x
+            d = Math.round(Math.abs(result.targetPoint.x - result.startPoint.x) / Math.cos(30 * Math.PI / 180)) - 1 + Math.pow(Math.random(), 2) * 6
+            console.log({ d })
+          })
+          this.cursor.clickPoint.stamp = +new Date()
+          await new Promise(r => setTimeout(r, 80 + Math.round(Math.pow(Math.random(), .4) * 30)))
+          this.cachedObj.clients[0].write(vm.screendata || '0x0000')
+
+
+          let distance = 0
+          let lastmoveStamp = this.cursor.clickPoint.stamp
+          while (distance < d) {
+            await new Promise(r => setTimeout(r, 5))
+            let currentStamp = +new Date()
+            let deltaTime = currentStamp - this.cursor.clickPoint.stamp
+            let deltaMove = currentStamp - lastmoveStamp
+            if (deltaMove > 200) {
+              this.mark.touchSocket.write(`m 0 ${x} ${y} 50\n`)
+              this.mark.touchSocket.write(`c\n`)
+              lastmoveStamp = currentStamp
+            }
+            distance = linearFn(deltaTime, this.canvasBoundary.ratio, this.ratio)
+            this.cursor.targetPoint.y = this.cursor.clickPoint.y - distance
+            // console.info('while ing', mark.pressing, deltaTime)
+          }
+          console.log({ distance, d })
+          this.mark.touchSocket.write(`u\n`)
+          this.mark.touchSocket.write(`c\n`)
+          if (vm.auto) {
+            await new Promise(r => setTimeout(r, 1230 + Math.round(Math.pow(Math.random(), .3) * 300)))
+            vm.autoClick()
+          }
+        } else {
+          console.info('no touch Socket')
+        }
+
+      }
+    },
+    async matchTemplate() {
+      var vm = this
+      if (!this._socket) {
+        await this.startSocket() //
+      }
+      if (!this._socket) { throw new Error("socket server start failed") }
+
+      if (!this.cachedObj.clients || !this.cachedObj.clients.length) {
+        throw new Error('non socket connections')
+      } else {
+        this.cachedObj.clients[0].write(vm.screendata || '0x0000')
+        return new Promise(r => {
+          vm.sequence.push(r)
+        }).then(result => {
+          console.log({ result })
+          vm.cursor.startPoint.x = result.startPoint.x
+          vm.cursor.startPoint.y = result.startPoint.y + 160
+          vm.cursor.targetPoint2.x = result.targetPoint.x
+          vm.cursor.targetPoint2.y = result.targetPoint.y + 160
+          vm.cursor.targetPoint2.x0 = result.targetPoint.x
+          let distance = Math.round(Math.abs(result.targetPoint.x - result.startPoint.x) / Math.cos(30 * Math.PI / 180)) * vm.ratio
+          console.log({ distance })
+          return vm.performByDistance(distance)
+        })
+      }
+    },
     async startSocket() {
       var vm = this
+      if (vm._socket) return
       // 使用了bind，不能使用箭头函数
       var sFn = function(data) {
         console.info('socket serv:', data.toString())
-        if (data.toString() === 'capture') {
-          this.write(vm.screendata)
+        vm.socketmsg = data.toString()
+        switch (data.toString()) {
+          case 'capture':
+            this.write(vm.screendata || '0x0000')
+        }
+        try {
+          let info = JSON.parse(data.toString())
+          switch (info.type) {
+            case 'point':
+              break
+            case 'match':
+              vm.sequence.forEach(r => r(info))
+              vm.sequence.splice(0, vm.sequence.length)
+              break
+            default:
+
+          }
+        } catch (e) {
+          console.log(e, 'not JSON msg')
         }
       }
-
-      var server = genSocket(sFn)
-      var vm = this
-      server.listen(1338, '127.0.0.1', function(...x) {
-        console.info(x, this)
-        vm._socket = this
+      var server = genSocket(sFn, vm.cachedObj)
+      return new Promise(r => {
+        server.listen(1338, '127.0.0.1', function(...x) {
+          // console.info(x, this)
+          vm._socket = this
+          r()
+        })
       })
     },
     async stopSocket() {
@@ -342,10 +500,16 @@ export default {
           }
           break
         case 'mousedown':
+          this.mark.pressing = false
           // console.info(this.mark)
           // console.info('mousedown', { x, y })
           // console.info(this.mark)
+          // await new Promise(r => {
+          // setTimeout(r, 200)
+          // })
           if (this.mark.touchSocket && !this.configure.markMode) {
+
+            console.log('click', x, y)
             this.mark.touchSocket.write(`r\n`)
             this.mark.touchSocket.write(`d 0 ${x} ${y} 50\n`)
             this.mark.touchSocket.write(`c\n`)
@@ -445,7 +609,7 @@ export default {
       if (!binding.value) return
       // let BLANK_IMG = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='
       // var g = el.getContext('2d')
-      let { x, y, clickPoint, targetPoint } = binding.value
+      let { x, y, clickPoint, targetPoint, startPoint, targetPoint2 } = binding.value
       let vm = vNode.context
       var ctx = el.getContext('2d')
       ctx.clearRect(0, 0, el.width, el.height)
@@ -454,8 +618,11 @@ export default {
 
 
       drawCross({ x, y }, ctx, el)
-      drawCross(clickPoint, ctx, el)
-      drawCross(targetPoint, ctx, el)
+      // drawCross(clickPoint, ctx, el)
+      drawCross(startPoint, ctx, el)
+      drawCross(targetPoint2, ctx, el)
+      drawVLine(targetPoint2.x0, ctx, el)
+
       // ctx.translate(-el.width / 2, -el.height / 2)
       // ctx.globalAlpha = 0.3
       // ctx.fillRect(100, 100, el.width - 200, el.height - 200)
@@ -521,7 +688,7 @@ blockquote.info-panel {
 
 #cover {
   position: absolute;
-  background: rgba(0, 0, 0, .1);
+  /* background: rgba(0, 0, 0, .1); */
   z-index: 10;
 }
 </style>
